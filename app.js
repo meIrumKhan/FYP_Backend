@@ -346,6 +346,14 @@ server.post("/deleteflight", authMiddleware, async (req, res) => {
       });
     }
 
+    const associatedBooing = await bookingModel.findOne({ flights: ID });
+    if (associatedBooing) {
+      return res.json({
+        message: "Flight cannot be deleted as it is associated with a booking.",
+        success: false,
+      });
+    }
+
 
     const deleteLoc = await flightModel.findByIdAndDelete(ID);
     if (!deleteLoc) {
@@ -562,6 +570,15 @@ server.post("/deleteairlines", authMiddleware, async (req, res) => {
   const { ID } = req.body;
 
   try {
+
+    const associatedAirline = await flightModel.findOne({ airline : ID });
+    if (associatedAirline) {
+      return res.json({
+        message: "Airline cannot be deleted as it is associated with a flight.",
+        success: false,
+      });
+    }
+
     const deleteLoc = await airlineModel.findByIdAndDelete(ID);
     if (!deleteLoc) {
       return res.json({
@@ -721,6 +738,16 @@ server.post("/deleteflightroute", authMiddleware, async (req, res) => {
   const { ID } = req.body;
 
   try {
+
+    const associatedFlight = await flightModel.findOne({ route: ID });
+    if (associatedFlight) {
+      return res.json({
+        message: "Route cannot be deleted as it is associated with a flight.",
+        success: false,
+      });
+    }
+
+
     const deleteLoc = await routeModel.findByIdAndDelete(ID);
     if (!deleteLoc) {
       return res.json({
@@ -999,6 +1026,18 @@ server.get("/logout", authMiddleware, (req, resp) => {
     console.log(e.message);
   }
 });
+
+server.get("/", (req, resp) => {
+  try {
+
+    return resp.json({ Group_Details: "Group - Members: Irum Rian, Ammar Sajjad , Muhammad Haseeb - Project: AirTik ( ADVANCED AIR (Reservation-system)) " });
+
+
+  } catch (e) {
+    console.log(e.message);
+  }
+});
+
 
 server.listen(PORT, () => {
   try {
