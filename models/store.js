@@ -12,8 +12,11 @@ const locationSchema = new mongoose.Schema({
 });
 
 const routeSchema = new mongoose.Schema({
-  origin: { type: String, required: true },
-  destination: { type: String, required: true },
+  // origin: { type: String, required: true },
+  // destination: { type: String, required: true },
+
+  origin: { type: mongoose.Schema.Types.ObjectId, ref: 'Location', required: true },
+  destination: { type: mongoose.Schema.Types.ObjectId, ref: 'Location', required: true },
   duration: { type: String, required: true },
   distance: { type: Number, required: true },
 });
@@ -53,7 +56,6 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true },
   isAdmin: { type: Boolean, default: false },
 });
-
 
 const bookingSchema = new Schema({
   ticketId: {
@@ -95,7 +97,7 @@ const bookingSchema = new Schema({
   },
   paymentStatus: {
     type: String,
-    enum: ["Pending", "Completed", "Failed"],
+    enum: ["Pending", "Completed", "Failed", "Cancelled"],
     default: "Completed",
   },
   createdAt: {
@@ -104,38 +106,39 @@ const bookingSchema = new Schema({
   },
 });
 
-// Pre-validation hook to validate seat availability and assign seat numbers
+
 bookingSchema.pre("validate", async function (next) {
   try {
-    // Skip if not a new booking or seat numbers are already assigned
+  
     if (!this.isNew || this.seatNumbers.length > 0) {
       return next();
     }
 
-    // Fetch the flight details
+    
     const flight = await mongoose.model("Flights").findById(this.flights);
-
 
     if (!flight) {
       return next(new Error("Flight not found."));
     }
 
-    // Check if there are enough available seats
+   
     if (flight.available < this.seats) {
       return next(
         new Error(`Not enough available seats. Only ${flight.available} left.`)
       );
     }
 
-    // Get current bookings for this flight
+  
     const currentBookings = await mongoose.model("Booking").find({
       flights: this.flights,
     });
 
-    // Collect all currently booked seat numbers
-    const bookedSeatNumbers = currentBookings.flatMap((booking) => booking.seatNumbers);
+    
+    const bookedSeatNumbers = currentBookings.flatMap(
+      (booking) => booking.seatNumbers
+    );
 
-    // Generate all available seats based on flight total
+   
     const availableSeats = [];
     for (let i = 1; i <= flight.total; i++) {
       const seat = `Seat-${i}`;
@@ -144,7 +147,7 @@ bookingSchema.pre("validate", async function (next) {
       }
     }
 
-    // Check if there are enough unbooked seats
+   
     if (availableSeats.length < this.seats) {
       return next(
         new Error(
@@ -153,7 +156,7 @@ bookingSchema.pre("validate", async function (next) {
       );
     }
 
-    // Assign seat numbers from available seats
+    
     this.seatNumbers = availableSeats.slice(0, this.seats);
 
     next();
@@ -166,7 +169,7 @@ bookingSchema.pre("validate", async function (next) {
 bookingSchema.post("save", async function () {
   const flight = await mongoose.model("Flights").findById(this.flights);
   if (flight) {
-    flight.available -= this.seats; 
+    flight.available -= this.seats;
     await flight.save();
   }
 });
@@ -174,11 +177,10 @@ bookingSchema.post("save", async function () {
 bookingSchema.post("remove", async function () {
   const flight = await mongoose.model("Flights").findById(this.flights);
   if (flight) {
-    flight.available += this.seats; 
+    flight.available += this.seats;
     await flight.save();
   }
 });
-
 
 const bookingModel = mongoose.model("Booking", bookingSchema);
 
@@ -194,5 +196,5 @@ module.exports = {
   routeModel,
   airlineModel,
   flightModel,
-  bookingModel
+  bookingModel,
 };
