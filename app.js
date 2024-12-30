@@ -170,6 +170,8 @@ server.post("/addbooking", authMiddleware, upload.single("qrCodeImage"), async (
 
     const ticketUrl = `${FRONTEND_URL}/ticket/${ticketId}`;  
 
+    // const ticketUrl = `http://localhost:3000//ticket/${ticketId}`;  
+
     QRCode.toBuffer(ticketUrl, (err, buffer) => {
       if (err) {
         return res.json({
