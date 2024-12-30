@@ -12,11 +12,16 @@ const locationSchema = new mongoose.Schema({
 });
 
 const routeSchema = new mongoose.Schema({
-  // origin: { type: String, required: true },
-  // destination: { type: String, required: true },
-
-  origin: { type: mongoose.Schema.Types.ObjectId, ref: 'Location', required: true },
-  destination: { type: mongoose.Schema.Types.ObjectId, ref: 'Location', required: true },
+  origin: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Location",
+    required: true,
+  },
+  destination: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Location",
+    required: true,
+  },
   duration: { type: String, required: true },
   distance: { type: Number, required: true },
 });
@@ -61,9 +66,6 @@ const bookingSchema = new Schema({
   ticketId: {
     type: String,
     required: true,
-    default: function () {
-      return `TICKET-${shortid.generate().toUpperCase()}`;
-    },
   },
   flights: {
     type: mongoose.Schema.Types.ObjectId,
@@ -104,41 +106,40 @@ const bookingSchema = new Schema({
     type: Date,
     default: Date.now,
   },
+  qrCode: {
+    data: Buffer,
+    contentType: String,
+  },
 });
-
 
 bookingSchema.pre("validate", async function (next) {
   try {
-  
     if (!this.isNew || this.seatNumbers.length > 0) {
       return next();
     }
 
-    
+    // flight
+
     const flight = await mongoose.model("Flights").findById(this.flights);
 
     if (!flight) {
       return next(new Error("Flight not found."));
     }
 
-   
     if (flight.available < this.seats) {
       return next(
         new Error(`Not enough available seats. Only ${flight.available} left.`)
       );
     }
 
-  
     const currentBookings = await mongoose.model("Booking").find({
       flights: this.flights,
     });
 
-    
     const bookedSeatNumbers = currentBookings.flatMap(
       (booking) => booking.seatNumbers
     );
 
-   
     const availableSeats = [];
     for (let i = 1; i <= flight.total; i++) {
       const seat = `Seat-${i}`;
@@ -147,7 +148,6 @@ bookingSchema.pre("validate", async function (next) {
       }
     }
 
-   
     if (availableSeats.length < this.seats) {
       return next(
         new Error(
@@ -156,7 +156,6 @@ bookingSchema.pre("validate", async function (next) {
       );
     }
 
-    
     this.seatNumbers = availableSeats.slice(0, this.seats);
 
     next();

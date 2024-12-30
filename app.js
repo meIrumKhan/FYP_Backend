@@ -15,11 +15,17 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
 const multer = require("multer");
+const QRCode = require("qrcode");
+const shortid = require("shortid");
+
+
 
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
 const PORT = process.env.PORT || 8000;
+const FRONTEND_URL = 'https://fyp-frontend-roan.vercel.app'
+const LOCAL_URL = 'http://localhost:3000'
 
 server.use(express.static("public"));
 
@@ -32,7 +38,7 @@ server.use(express.static("public"));
 
 server.use(
   cors({
-    origin: ["http://localhost:3000", "https://fyp-frontend-roan.vercel.app"],
+    origin: [LOCAL_URL, FRONTEND_URL],
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
     // allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
@@ -111,7 +117,8 @@ server.get("/admindashboard", authMiddleware, async (req, res) => {
 
 // Booking
 
-server.post("/addbooking", authMiddleware, async (req, res) => {
+
+server.post("/addbooking", authMiddleware, upload.single("qrCodeImage"), async (req, res) => {
   try {
     const { flights, seats } = req.body;
     const userId = req.user.userId;
@@ -150,20 +157,49 @@ server.post("/addbooking", authMiddleware, async (req, res) => {
 
     const totalPrice = seats * flightDetails.price;
 
+ 
+    const ticketId = `TICKET-${shortid.generate().toUpperCase()}`;
+
     const newBooking = new bookingModel({
+      ticketId,  
       flights,
       user: userId,
       seats,
       totalPrice,
     });
 
-    await newBooking.save();
+    const ticketUrl = `${FRONTEND_URL}/ticket/${ticketId}`;  
 
-    return res.json({
-      message: "Booking created successfully.",
-      success: true,
-      booking: newBooking,
+    QRCode.toBuffer(ticketUrl, (err, buffer) => {
+      if (err) {
+        return res.json({
+          message: "Error generating QR code",
+          success: false,
+        });
+      }
+
+      newBooking.qrCode = {
+        data: buffer,
+        contentType: "image/png",
+      };
+
+      newBooking.save()
+        .then(() => {
+          res.json({
+            message: "Booking created successfully with QR code.",
+            success: true,
+            booking: newBooking,
+          });
+        })
+        .catch((error) => {
+          console.error("Error saving booking:", error);
+          res.json({
+            message: "Error saving booking.",
+            success: false,
+          });
+        });
     });
+
   } catch (error) {
     console.error("Error adding booking:", error);
     return res.json({
@@ -184,7 +220,7 @@ server.get("/getuserbooking", authMiddleware, async (req, res) => {
         path: "flights",
         populate: {
           path: "route",
-          select: "departureTime destination", 
+          select: "departureTime destination",
           populate: {
             path: "destination",
             select: "city",
@@ -193,10 +229,10 @@ server.get("/getuserbooking", authMiddleware, async (req, res) => {
       })
       .select("-__v -updatedAt");
 
-  
     const bookingsWithCity = bookings.map((booking) => {
       if (booking.flights?.route?.destination) {
-        booking.flights.route.destination = booking.flights.route.destination.city; 
+        booking.flights.route.destination =
+          booking.flights.route.destination.city;
       }
       return booking;
     });
@@ -215,8 +251,6 @@ server.get("/getuserbooking", authMiddleware, async (req, res) => {
     });
   }
 });
-
-
 
 
 server.get("/getbookings", authMiddleware, async (req, res) => {
@@ -240,10 +274,10 @@ server.get("/getbookings", authMiddleware, async (req, res) => {
       })
       .select("-__v -updatedAt");
 
-    
     const bookingsWithCity = bookings.map((booking) => {
       if (booking.flights?.route?.destination) {
-        booking.flights.route.destination = booking.flights.route.destination.city; 
+        booking.flights.route.destination =
+          booking.flights.route.destination.city;
       }
       return booking;
     });
@@ -251,7 +285,7 @@ server.get("/getbookings", authMiddleware, async (req, res) => {
     res.json({
       success: true,
       message: "Fetched all bookings successfully.",
-      bookings: bookingsWithCity, 
+      bookings: bookingsWithCity,
     });
   } catch (error) {
     console.error("Error fetching bookings:", error.message);
@@ -260,6 +294,51 @@ server.get("/getbookings", authMiddleware, async (req, res) => {
       message: "Error fetching bookings.",
       error: error.message,
     });
+  }
+});
+
+server.get("/ticket/:ticketId", async (req, res) => {
+  try {
+    const { ticketId } = req.params;
+    const booking = await bookingModel
+      .findOne({ ticketId })
+      .populate({
+        path: "flights",
+        populate: {
+          path: "route",
+          select: "departureTime destination",
+          populate: {
+            path: "destination",
+            select: "city",
+          },
+        },
+      })
+      .populate({
+        path: "user",
+        select: "name email",
+      })
+      .select("-__v -updatedAt");
+
+    if (!booking) {
+      return res.json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+   
+    if (booking.flights?.route?.destination) {
+      booking.flights.route.destination = booking.flights.route.destination.city;
+    }
+
+    res.json({
+      success: true,
+      message: "Fetched booking successfully.",
+      booking, 
+    });
+  } catch (error) {
+    console.error("Error fetching ticket:", error);
+    res.json({ message: "Server error" });
   }
 });
 
@@ -304,8 +383,7 @@ server.post("/deletebooking/:id", authMiddleware, async (req, res) => {
 
 server.get("/addflights", async (req, res) => {
   try {
-   
-    const airlines = await airlineModel.find().populate('_id', 'name');
+    const airlines = await airlineModel.find().populate("_id", "name");
 
     const routes = await routeModel
       .find()
@@ -448,17 +526,18 @@ server.post("/deleteflight", authMiddleware, async (req, res) => {
 
 server.get("/getallflights", async (req, res) => {
   try {
-    const flights = await flightModel.find()
+    const flights = await flightModel
+      .find()
       .populate({
-        path: "airline", 
-        select: "airline code image", 
+        path: "airline",
+        select: "airline code image",
       })
       .populate({
-        path: "route", 
-        select: "origin destination duration distance", 
+        path: "route",
+        select: "origin destination duration distance",
         populate: {
-          path: "origin destination", 
-          select: "city", 
+          path: "origin destination",
+          select: "city",
         },
       })
       .exec();
@@ -474,7 +553,6 @@ server.get("/getallflights", async (req, res) => {
     });
   }
 });
-
 
 server.post("/editflights", authMiddleware, async (req, res) => {
   try {
@@ -724,19 +802,21 @@ server.post("/deleteairlines", authMiddleware, async (req, res) => {
   }
 });
 
-
-
 server.post(
   "/editairline",
   authMiddleware,
   upload.single("image"),
   async (req, res) => {
     try {
-      const { airline, code, id, existingImageData, existingImageContentType } = req.body;
+      const { airline, code, id, existingImageData, existingImageContentType } =
+        req.body;
       const imageFile = req.file;
 
       if (!airline) {
-        return res.json({ message: "Airline name is required", success: false });
+        return res.json({
+          message: "Airline name is required",
+          success: false,
+        });
       }
 
       const existingAirline = await airlineModel.findById(id);
@@ -747,22 +827,18 @@ server.post(
       existingAirline.airline = airline.trim();
       existingAirline.code = code.trim().toUpperCase();
 
-      
       if (imageFile) {
         existingAirline.image = {
           data: imageFile.buffer,
           contentType: imageFile.mimetype,
         };
-      }
-   
-      else if (existingImageData && existingImageContentType) {
+      } else if (existingImageData && existingImageContentType) {
         existingAirline.image = {
           data: Buffer.from(JSON.parse(existingImageData)),
           contentType: existingImageContentType,
         };
       }
 
-    
       await existingAirline.save();
 
       return res.json({
@@ -776,14 +852,12 @@ server.post(
   }
 );
 
-
 // FlightRoutes
 
 server.post("/addflightroute", authMiddleware, async (req, res) => {
   try {
     const { origin, destination, duration, distance } = req.body;
 
-   
     const originLocation = await locationModel.findOne({
       _id: origin.trim(),
     });
@@ -792,7 +866,6 @@ server.post("/addflightroute", authMiddleware, async (req, res) => {
       _id: destination.trim(),
     });
 
-    
     if (!originLocation) {
       return res.json({
         message: "Origin location not found.",
@@ -807,7 +880,6 @@ server.post("/addflightroute", authMiddleware, async (req, res) => {
       });
     }
 
-   
     const existingRoute = await routeModel.findOne({
       origin: origin.trim(),
       destination: destination.trim(),
@@ -820,9 +892,8 @@ server.post("/addflightroute", authMiddleware, async (req, res) => {
       });
     }
 
-    
     const newRoute = new routeModel({
-      origin: originLocation._id, 
+      origin: originLocation._id,
       destination: destinationLocation._id,
       duration,
       distance,
@@ -842,8 +913,6 @@ server.post("/addflightroute", authMiddleware, async (req, res) => {
     });
   }
 });
-
-
 
 server.get("/getallroutes", authMiddleware, async (req, res) => {
   try {
@@ -867,16 +936,13 @@ server.get("/getallroutes", authMiddleware, async (req, res) => {
   }
 });
 
-
 server.post("/editflightroute", authMiddleware, async (req, res) => {
   try {
     const { origin, destination, duration, distance, _id } = req.body;
 
-    
-    const originId = new mongoose.Types.ObjectId(origin); 
+    const originId = new mongoose.Types.ObjectId(origin);
     const destinationId = new mongoose.Types.ObjectId(destination);
 
-   
     const existingRoute = await routeModel.findOne({
       $or: [
         { origin: originId, destination: destinationId },
@@ -891,7 +957,6 @@ server.post("/editflightroute", authMiddleware, async (req, res) => {
       });
     }
 
-    
     const routetoUpdate = await routeModel.findById(_id);
     if (!routetoUpdate) {
       return res.json({
@@ -900,13 +965,11 @@ server.post("/editflightroute", authMiddleware, async (req, res) => {
       });
     }
 
-   
     routetoUpdate.origin = originId;
     routetoUpdate.destination = destinationId;
     routetoUpdate.duration = duration.trim();
     routetoUpdate.distance = distance;
 
-    
     await routetoUpdate.save();
 
     return res.json({
